@@ -1,10 +1,27 @@
 package org.wesol.helper;
 
 import org.apache.poi.common.usermodel.HyperlinkType;
-import org.apache.poi.ss.usermodel.Hyperlink;
+import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFHyperlink;
 
 public class LinkHelper {
+
+    public static CellStyle getStyleLocked(Workbook wb){
+        CellStyle lockCellStyle = wb.createCellStyle();
+        lockCellStyle.setLocked(true); //true or false based on the cell.
+
+        return lockCellStyle;
+    }
+    public static CellStyle getStyleHyperLink(Workbook wb){
+        CellStyle hLinkStyle = wb.createCellStyle();
+        final Font hLinkFont = wb.createFont();
+        hLinkFont.setFontName("Ariel");
+        hLinkFont.setUnderline(Font.U_SINGLE);
+        hLinkFont.setColor(IndexedColors.BLUE.getIndex() );
+        hLinkStyle.setFont(hLinkFont);
+        return hLinkStyle;
+    }
+
     public static XSSFHyperlink createHyperlink(HyperlinkType type) {
         Hyperlink link = new Hyperlink() {
             @Override
