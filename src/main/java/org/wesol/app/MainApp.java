@@ -1,5 +1,6 @@
 package org.wesol.app;
 
+import org.apache.commons.cli.*;
 import org.apache.commons.io.FileUtils;
 import org.apache.poi.common.usermodel.HyperlinkType;
 import org.apache.poi.ss.usermodel.*;
@@ -20,40 +21,95 @@ import org.wesol.helper.LinkHelper;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 public class MainApp {
+    static String baseFilepath = "";
+    static String driverPath = "";
+    static String excelFileName = "";
+
     static Set<String> uniqueSet = new HashSet<>();
-    static String downloadFilepath = "D:\\Coding\\Code\\data";
     static WebDriver driver;
-    static String baseURL = "https://bocaodientu.dkkd.gov.vn/egazette/Forms/Egazette/DefaultAnnouncements.aspx";
-    static String driverPath = "D:\\Coding\\Code\\chromedriver\\chromedriver.exe";
-    static String excelPath = downloadFilepath;
+    static String downloadFilePath = "";
+    static String excelPath = "";
+    static String folderAddressExcel = "";
+    static final String baseURL = "https://bocaodientu.dkkd.gov.vn/egazette/Forms/Egazette/DefaultAnnouncements.aspx";
+    static SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmm");
 
     public static void main(String[] args) {
-        //prepare
+        //parse option
+        parseOption(args);
         prepare();
-        List<CompanyInfo> companyInfos = doCrawInfo();
+        doCrawInfo();
         System.out.println("Download info company completed!");
     }
 
-    public static void prepare() {
-        File directory = new File(downloadFilepath);
-        File[] files = directory.listFiles(File::isFile);
+    private static void parseOption(String[] args) {
+        Options options = new Options();
 
-        if (files != null) {
-            for (File file : files) {
-                if (file.getName().startsWith("new_announcement")) {
-                    try {
-                        FileUtils.forceDelete(file);
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                }
-            }
-            System.out.println("Loaded " + uniqueSet.size() + " files");
+        Option input = new Option("d", "driver", true, "driver file path");
+        input.setRequired(true);
+        options.addOption(input);
+
+        Option output = new Option("o", "output", true, "output folder");
+        output.setRequired(true);
+        options.addOption(output);
+
+        Option excelFile = new Option("e", "excel", true, "excel file name");
+        output.setRequired(true);
+        options.addOption(excelFile);
+
+        CommandLineParser parser = new DefaultParser();
+        HelpFormatter formatter = new HelpFormatter();
+        CommandLine cmd;
+
+        try {
+            cmd = parser.parse(options, args);
+            driverPath = cmd.getOptionValue("driver");
+            baseFilepath = cmd.getOptionValue("output");
+            excelFileName = cmd.getOptionValue("excel");
+            excelPath = baseFilepath;
+
+            System.out.println(driverPath);
+            System.out.println(baseFilepath);
+            System.out.println(excelFileName);
+        } catch (ParseException e) {
+            System.out.println(e.getMessage());
+            formatter.printHelp("CrawCompanyInfo", options);
+
+            System.exit(1);
         }
+    }
+
+    public static void prepare() {
+        //new folder:
+        String folderName = sdf.format(new Date());
+        System.out.println("create folder " + folderName);
+        folderAddressExcel = folderName;
+        File newFolder = new File(baseFilepath + File.separator + folderName);
+        if (!newFolder.exists()) {
+            newFolder.mkdirs();
+        }
+        downloadFilePath = newFolder.getPath();
+
+        // load file name to avoid duplicate download
+        loadFileName();
+
+        //backup excel file
+        try {
+            System.out.println("backing up excel file...");
+            Files.copy(new File(excelPath + File.separator + excelFileName).toPath(),
+                    new File(excelPath + File.separator + folderName + "_bk_" + excelFileName).toPath());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
     }
 
     public static List<CompanyInfo> doCrawInfo() {
@@ -61,7 +117,7 @@ public class MainApp {
         System.setProperty("webdriver.chrome.driver", driverPath);
         HashMap<String, Object> chromePrefs = new HashMap<String, Object>();
         chromePrefs.put("profile.default_content_settings.popups", 0);
-        chromePrefs.put("download.default_directory", downloadFilepath);
+        chromePrefs.put("download.default_directory", downloadFilePath);
         ChromeOptions options = new ChromeOptions();
         options.setExperimentalOption("prefs", chromePrefs);
         DesiredCapabilities cap = DesiredCapabilities.chrome();
@@ -73,8 +129,7 @@ public class MainApp {
         driver.get(baseURL);
         int currentPage = 1;
 
-        // load file name to avoid duplicate download
-        loadFileName();
+
         int numPageDoNothing = 0;
         List<CompanyInfo> ret = new ArrayList<>();
         try {
@@ -111,7 +166,7 @@ public class MainApp {
 
     private static void writeToExcel(List<CompanyInfo> companyInfos) {
         System.out.println("write to excel " + companyInfos.size() + " files");
-        String filePath = excelPath + "\\infos.xlsx";
+        String filePath = excelPath + File.separator + excelFileName;
 
         // Creating a Workbook from an Excel file (.xls or .xlsx)
         Workbook workbook = null;
@@ -161,13 +216,13 @@ public class MainApp {
                 cell.setCellValue(companyInfo.getProvince());
                 cell = row.createCell(++column);
                 XSSFHyperlink link = LinkHelper.createHyperlink(HyperlinkType.FILE);
-                link.setAddress(companyInfo.getMsdn() + ".pdf");
+                link.setAddress(folderAddressExcel + "/" + companyInfo.getMsdn() + ".pdf");
                 cell.setCellValue(companyInfo.getMsdn() + ".pdf");
                 cell.setHyperlink(link);
             }
 
 
-            FileOutputStream outputStream = new FileOutputStream(excelPath + "\\infos-temp.xlsx");
+            FileOutputStream outputStream = new FileOutputStream(excelPath + File.separator + "infos-temp.xlsx");
             workbook.write(outputStream);
             // Closing the workbook
             workbook.close();
@@ -178,14 +233,15 @@ public class MainApp {
 
 
     private static void loadFileName() {
-        File directory = new File(downloadFilepath);
-        File[] files = directory.listFiles(File::isFile);
+        //load all file
+        System.out.println("load all downloaded file name...");
 
-        if (files != null) {
-            for (File file : files) {
-                uniqueSet.add(file.getName().replace(".pdf", ""));
-            }
-            System.out.println("Loaded " + uniqueSet.size() + " files");
+        try (Stream<Path> paths = Files.walk(Paths.get(baseFilepath))) {
+            paths.filter(Files::isRegularFile)
+                    .filter(t -> t.getFileName().toString().endsWith("pdf"))
+                    .forEach(file -> uniqueSet.add(file.getFileName().toString().replace(".pdf", "")));
+        } catch (Exception e) {
+            System.out.println("Load files failed");
         }
     }
 
@@ -208,10 +264,10 @@ public class MainApp {
     }
 
     private static boolean changeFileName(String oldFileName, String newFileName) {
-        File file = new File(downloadFilepath + "/" + oldFileName);
+        File file = new File(downloadFilePath + "/" + oldFileName);
 
 
-        boolean success = file.renameTo(new File(downloadFilepath + "/" + newFileName + ".pdf"));
+        boolean success = file.renameTo(new File(downloadFilePath + "/" + newFileName + ".pdf"));
         int failed = 0;
         while (!success) {
             System.out.println("failed to rename " + oldFileName + "...");
@@ -220,7 +276,7 @@ public class MainApp {
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
-            success = file.renameTo(new File(downloadFilepath + "/" + newFileName + ".pdf"));
+            success = file.renameTo(new File(downloadFilePath + "/" + newFileName + ".pdf"));
             if (success) {
                 System.out.println("Retry success.");
                 break;
@@ -240,7 +296,7 @@ public class MainApp {
                 .withTimeout(5000, TimeUnit.MILLISECONDS)
                 .pollingEvery(200, TimeUnit.MILLISECONDS);
 
-        File f = new File(downloadFilepath + "/" + "new_announcement.pdf");
+        File f = new File(baseFilepath + "/" + "new_announcement.pdf");
         wait.until((WebDriver wd) -> f.exists());
     }
 
@@ -302,16 +358,6 @@ public class MainApp {
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
-//        for (Map.Entry<String,String> t : mapFileName.entrySet()){
-//            success = changeFileName(t.getKey(), t.getValue());
-//            while (success == false){
-//                System.out.println("failed to change file name " + t.getKey());
-//                success = changeFileName(t.getKey(), t.getValue());
-//                if(success == true){
-//                    System.out.println("Retry change name file " + t.getKey() + " success.");
-//                }
-//            }
-//        }
         return companyInfos;
     }
 
